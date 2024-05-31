@@ -1,52 +1,12 @@
 #include "brain.h"
+#include "parserbrain.h"
+#include "lex.h"
 #include <iostream>
 #include <string>
-#include <variant>
 #include <set>
-
-// Brain Areas
-const std::string LEX = "LEX";
-const std::string DET = "DET";
-const std::string SUBJ = "SUBJ";
-const std::string OBJ = "OBJ";
-const std::string VERB = "VERB";
-const std::string PREP = "PREP";
-const std::string PREP_P = "PREP_P";
-const std::string ADJ = "ADJ";
-const std::string ADVERB = "ADVERB";
-
-// Fixed area stats for explicit areas
-const int LEX_SIZE = 20;
-
-// Actions
-const std::string DISINHIBIT = "DISINHIBIT";
-const std::string INHIBIT = "INHIBIT";
-
-std::vector<std::string> AREAS = {LEX, DET, SUBJ, OBJ, VERB, ADJ, ADVERB, PREP, PREP_P};
-std::vector<std::string> EXPLICIT_AREAS = {LEX};
-std::vector<std::string> RECURRENT_AREAS = {SUBJ, OBJ, VERB, ADJ, ADVERB, PREP, PREP_P};
-
-// 定义 AreaRule 结构体
-struct AreaRule {
-    std::string action;
-    std::string area;
-    int index;
-};
-
-// 定义 FiberRule 结构体
-struct FiberRule {
-    std::string action;
-    std::string area1;
-    std::string area2;
-    int index;
-};
-
-// 定义 Generic 结构体
-struct Generic {
-    int index;
-    std::vector<std::variant<AreaRule, FiberRule>> preRules;
-    std::vector<std::variant<AreaRule, FiberRule>> postRules;
-};
+#include <algorithm>
+#include <variant>
+#include <sstream>
 
 Generic generic_noun(int index) {
     Generic noun;
@@ -254,135 +214,97 @@ enum ReadoutMethod {
     NATURAL_READOUT
 };
 
-class ParserBrain : public nemo::Brain {
+
+class EnglishParserBrain : public pb::ParserBrain {
 public:
-    ParserBrain(float p, const std::map<std::string, Generic>& lexeme_dict,
-                const std::vector<std::string>& all_areas,
-                const std::vector<std::string>& recurrent_areas,
-                const std::vector<std::string>& initial_areas,
-                const std::map<std::string, std::vector<std::string>>& readout_rules);
-    void initialize_states();
-    bool applyRule(const std::variant<AreaRule, FiberRule>& rule);
-    void applyFiberRule(const FiberRule& rule);
-    void applyAreaRule(const AreaRule& rule);
-    void parse_project();
-    void remember_fibers(const std::map<std::string, std::vector<std::string>>& project_map);
-    bool recurrent(const std::string& area) const;
-    std::map<std::string, std::vector<std::string>> getProjectMap();
-    void activateWord(const std::string& area_name, const std::string& word);
-    void activateIndex(const std::string& area_name, int index);
-    std::string interpretAssemblyAsString(const std::string& area_name);
+    EnglishParserBrain(float p, int non_LEX_n = 10000, int non_LEX_k = 100, int LEX_k = 20,
+                       float default_beta = 0.2, float LEX_beta = 1.0, float recurrent_beta = 0.05,
+                       float interarea_beta = 0.5, bool verbose = false);
+    std::map<std::string, std::vector<std::string>> getProjectMap() override;
+    std::string getWord(const std::string& area_name, double min_overlap = 0.7) override;
 
 private:
-    std::map<std::string, Generic> lexeme_dict;
-    std::vector<std::string> all_areas;
-    std::vector<std::string> recurrent_areas;
-    std::vector<std::string> initial_areas;
-    std::map<std::string, std::vector<std::string>> readout_rules;
-    std::map<std::string, std::map<std::string, std::set<int>>> fiber_states;
-    std::map<std::string, std::set<int>> area_states;
-    std::map<std::string, std::set<int>> activated_fibers;
-    std::map<std::string, std::set<std::string>> area_by_name; 
+    bool verbose;
 };
 
-ParserBrain::ParserBrain(float p, const std::map<std::string, Generic>& lexeme_dict,
-                const std::vector<std::string>& all_areas,
-                const std::vector<std::string>& recurrent_areas,
-                const std::vector<std::string>& initial_areas,
-                const std::map<std::string, std::vector<std::string>>& readout_rules) 
-    : Brain(p, 0.2f, 100000.f, 0),
-    lexeme_dict(lexeme_dict),
-    all_areas(all_areas),
-    recurrent_areas(recurrent_areas),
-    initial_areas(initial_areas),
-    readout_rules(readout_rules) {
-    initialize_states();
-};
+EnglishParserBrain::EnglishParserBrain(float p, int non_LEX_n, int non_LEX_k, int LEX_k,
+                                       float default_beta, float LEX_beta, float recurrent_beta,
+                                       float interarea_beta, bool verbose)
+    : ParserBrain(p, LEXEME_DICT, AREAS, RECURRENT_AREAS, {LEX, SUBJ, VERB}, ENGLISH_READOUT_RULES), 
+      verbose(verbose) {
+    
+    int LEX_n = LEX_SIZE * LEX_k;
+    AddArea(LEX, LEX_n, LEX_k, false, true);   // explicit
 
-void ParserBrain::initialize_states() {
-    // 更新 fiber states
-    for (const auto& from_area : all_areas) {
-        fiber_states[from_area] = std::map<std::string, std::set<int>>();
-        for (const auto& to_area : all_areas) {
-            fiber_states[from_area][to_area].insert(0);
-        }
-    }
+    int DET_k = LEX_k;
+    AddArea(SUBJ, non_LEX_n, non_LEX_k, true, false);      // recurrent
+    AddArea(OBJ, non_LEX_n, non_LEX_k, true, false);       // recurrent
+    AddArea(VERB, non_LEX_n, non_LEX_k, true, false);      // recurrent
+    AddArea(ADJ, non_LEX_n, non_LEX_k, true, false);       // recurrent
+    AddArea(PREP, non_LEX_n, non_LEX_k, true, false);      // recurrent
+    AddArea(PREP_P, non_LEX_n, non_LEX_k, true, false);    // recurrent
+    AddArea(DET, non_LEX_n, DET_k, false, false);          // 啥也不是
+    AddArea(ADVERB, non_LEX_n, non_LEX_k, true, false);    // recurrent
 
-    // 更新 area states，除了 initial areas，都 add 0
-    for (const auto& area : all_areas) {
-        area_states[area].insert(0);
-    }
-
-    for (const auto& area : initial_areas) {
-        area_states[area].erase(0);
-    }  
-}
-
-void ParserBrain::applyFiberRule(const FiberRule& rule){
-    if (rule.action == INHIBIT) {
-        fiber_states[rule.area1][rule.area2].insert(rule.index);
-        fiber_states[rule.area2][rule.area1].insert(rule.index);
-    } else if (rule.action == DISINHIBIT) {
-        fiber_states[rule.area1][rule.area2].erase(rule.index);
-        fiber_states[rule.area2][rule.area1].erase(rule.index);
-    }
-}
-
-void ParserBrain::applyAreaRule(const AreaRule& rule) {
-    if (rule.action == INHIBIT) {
-        area_states[rule.area].insert(rule.index);
-    } else if (rule.action == DISINHIBIT) {
-        area_states[rule.area].erase(rule.index);
-    }
-}
-
-bool ParserBrain::applyRule(const std::variant<AreaRule, FiberRule>& rule) {
-    if (std::holds_alternative<FiberRule>(rule)) {
-        applyFiberRule(std::get<FiberRule>(rule));
-        return true;
-    } else if (std::holds_alternative<AreaRule>(rule)) {
-        applyAreaRule(std::get<AreaRule>(rule));
-        return true;
-    }
-    return false;
-}
-
-void ParserBrain::parse_project(){
-    auto project_map = getProjectMap();
-    remember_fibers(project_map);
-    nemo::Brain::Project(project_map, 20, true);
-}
-
-void ParserBrain::remember_fibers(const std::map<std::string, std::vector<std::string>>& project_map) {
-    for (const auto& [from_area, to_areas] : project_map) {
-        activated_fibers[from_area].insert(to_areas.begin(), to_areas.end());
-    }
-}
-
-std::map<std::string, std::vector<std::string>> ParserBrain::getProjectMap() {
-    std::map<std::string, std::vector<std::string>> proj_map;
-    for (const auto& area1 : all_areas) {
-        if (area_states[area1].empty()) {
-            for (const auto& area2 : all_areas) {
-                if (area1 == LEX && area2 == LEX) {
-                    continue;
-                }
-                if (area_states[area2].empty() && fiber_states[area1][area2].empty()) {
-                    // 1. area2 states 长度为0
-                    // 2. area1-area2 fiber disinhibit
-                    if (area_by_name[area1].count("winners")) { // Assuming winners is a special key
-                        proj_map[area1].push_back(area2);
-                    }
-                    if (area_by_name[area2].count("winners")) { // Assuming winners is a special key
-                        proj_map[area2].push_back(area2);
-                    }
-                }
+    // Define custom plasticities
+    std::map<std::string, std::vector<std::pair<std::string, float>>> custom_plasticities;
+    for (const auto& area : RECURRENT_AREAS) {
+        custom_plasticities[LEX].emplace_back(area, LEX_beta);
+        custom_plasticities[area].emplace_back(LEX, LEX_beta);
+        custom_plasticities[area].emplace_back(area, recurrent_beta);
+        for (const auto& other_area : RECURRENT_AREAS) {
+            if (other_area == area) {
+                continue;
             }
+            custom_plasticities[area].emplace_back(other_area, interarea_beta);
         }
+    }
+
+    // UpdatePlasticity(custom_plasticities);
+}
+
+std::map<std::string, std::vector<std::string>> EnglishParserBrain::getProjectMap() {
+    auto proj_map = ParserBrain::getProjectMap();
+    // "War of fibers"
+    if (proj_map.find(LEX) != proj_map.end() && proj_map[LEX].size() > 2) {  // because LEX->LEX
+        std::ostringstream oss;
+        oss << "Got that LEX projecting into many areas: ";
+        for (const auto& area : proj_map[LEX]) {
+            oss << area << " ";
+        }
+        throw std::runtime_error(oss.str());
     }
     return proj_map;
 }
 
+
+std::string EnglishParserBrain::getWord(const std::string& area_name, double min_overlap) {
+    std::string word = ParserBrain::getWord(area_name, min_overlap);
+    if (!word.empty()) {
+        return word;
+    }
+
+    // 可以忽略 py 代码这里是有错的
+    // if (area_name == "DET") {
+    //     const auto& area = area_by_name[area_name];
+    //     std::set<int> winners(area.winners.begin(), area.winners.end());
+    //     int area_k = area.k;
+    //     int threshold = static_cast<int>(min_overlap * area_k);
+    //     int nodet_index = DET_SIZE - 1;
+    //     std::set<int> nodet_assembly;
+    //     for (int i = 0; i < area_k; ++i) {
+    //         nodet_assembly.insert(nodet_index * area_k + i);
+    //     }
+    //     std::set<int> intersection;
+    //     std::set_intersection(winners.begin(), winners.end(), nodet_assembly.begin(), nodet_assembly.end(), std::inserter(intersection, intersection.begin()));
+    //     if (static_cast<int>(intersection.size()) > threshold) {
+    //         return "<null-det>";
+    //     }
+    // }
+
+    // If nothing matched, at least we can see that in the parse output.
+    return "<NON-WORD>";
+}
 
 
 
