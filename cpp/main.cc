@@ -306,6 +306,23 @@ std::string EnglishParserBrain::getWord(const std::string& area_name, double min
     return "<NON-WORD>";
 }
 
+void parse(const std::string& sentence = "cats chase mice", 
+           const std::string& language = "English", 
+           float p = 0.1, 
+           int LEX_k = 20, 
+           int project_rounds = 20, 
+           bool verbose = true, 
+           bool debug = false, 
+           ReadoutMethod readout_method = ReadoutMethod::FIBER_READOUT) {
+    EnglishParserBrain* b = new EnglishParserBrain(p, 10000, 100, LEX_k, 0.2, 1.0, 0.05, 0.5, verbose);
+    std::map<std::string, Generic> lexeme_dict = LEXEME_DICT;
+    std::vector<std::string> all_areas = AREAS;
+    std::vector<std::string> explicit_areas = EXPLICIT_AREAS;
+    std::map<std::string, std::vector<std::string>> readout_rules = ENGLISH_READOUT_RULES;
+
+    // parse helper
+
+}
 
 
 int main() {
@@ -318,7 +335,7 @@ int main() {
     bool debug = false;
     ReadoutMethod readout_method = FIBER_READOUT;
 
-    
+    parse(sentence, language, p, LEX_k, project_rounds, verbose, debug, readout_method);
 
     return 0;
 }
