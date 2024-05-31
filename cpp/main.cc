@@ -284,7 +284,7 @@ std::string EnglishParserBrain::getWord(const std::string& area_name, double min
         return word;
     }
 
-    // 可以忽略 py 代码这里是有错的
+    // 可以忽略, 作者py代码这里是有错的
     // if (area_name == "DET") {
     //     const auto& area = area_by_name[area_name];
     //     std::set<int> winners(area.winners.begin(), area.winners.end());
