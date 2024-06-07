@@ -1,0 +1,3 @@
+/data/duantong/mazipei/杂/assemblies/cpp/build/CMakeFiles/gtest_gmock.dir
+/data/duantong/mazipei/杂/assemblies/cpp/build/CMakeFiles/edit_cache.dir
+/data/duantong/mazipei/杂/assemblies/cpp/build/CMakeFiles/rebuild_cache.dir
